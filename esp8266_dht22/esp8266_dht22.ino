@@ -5,14 +5,15 @@
 // https://arduinojson.org/
 #include "ArduinoJson.h"
 
-#include "temp_logger_config.h"
+#include "config.h"
 
 //https://github.com/adafruit/DHT-sensor-library
 #include "DHT.h"
 
-#define DHTPIN D4
-#define DHTTYPE DHT22
-#define DHTVcc D6
+uint8_t DHTPIN = D4;
+uint8_t DHTVcc = D6;
+int DHTTYPE = DHT22;
+
 DHT dht(DHTPIN, DHTTYPE);
 
 
@@ -102,6 +103,7 @@ void send_temp(float temp) {
   doc["timestamp"] = now;
   doc["sensor"] = WiFi.macAddress() + "-0";
   doc["value"] = temp;
+  doc["next_update"] = 12 * 60;
   String json = "";
   serializeJson(doc, json);
   Serial.println("------------------------------");
@@ -122,6 +124,7 @@ void send_humidity(float humidity) {
   doc["timestamp"] = now;
   doc["sensor"] = WiFi.macAddress() + "-1";
   doc["value"] = humidity;
+  doc["next_update"] = 12 * 60;
   String json = "";
   serializeJson(doc, json);
   Serial.println("------------------------------");
