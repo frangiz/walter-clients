@@ -76,7 +76,7 @@ void sync_ntp() {
   Serial.println("------------------------------");
   Serial.println("Syncing NTP");
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  unsigned timeout = 5000;
+  unsigned timeout = 60 * 1000;
   unsigned start = millis();
   while (millis() - start < timeout) {
     Serial.print(".");
@@ -142,7 +142,7 @@ void send_humidity(float humidity) {
 float calc_temp(int reading) {
     Serial.print("Reading: ");
     Serial.println(reading);
-    float voltage = reading * 3.1;  
+    float voltage = reading * 3.1;
     voltage /= 1024.0;
     return (voltage - 0.5) * 100;
 }
