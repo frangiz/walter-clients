@@ -16,6 +16,7 @@ int DHTTYPE = DHT22;
 
 DHT dht(DHTPIN, DHTTYPE);
 
+int retries = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -29,6 +30,8 @@ void setup() {
   Serial.println();
   connect_to_wifi();
   sync_ntp();
+
+  retries = 0;
 }
 
 void loop() {
@@ -40,12 +43,15 @@ void loop() {
   if (isnan(temp)) {
     Serial.println("Is NaN, restarting DHT.");
     dht_restart();
+    retries++;
     return;
   }
   Serial.println(temp);
   Serial.println(humidity);
+  Serial.println(retries);
   send_temp(temp);
   send_humidity(humidity);
+  send_retries(retries, WiFi.macAddress() + "-0");
   Serial.println("going to sleep");
   ESP.deepSleep(10*60*1e6, WAKE_RF_DEFAULT);
 }
@@ -136,6 +142,26 @@ void send_humidity(float humidity) {
   http.end();
 }
 
+void send_retries(int retries, String sensorId) {
+  sensorId = remove_char(sensorId, ':');
+  time_t now = time(nullptr);
+  HTTPClient http;
+  http.begin(SERVER + "/api/sensors/" + sensorId + "/logs");
+  http.addHeader("Content-Type", "application/json");
+  StaticJsonDocument<200> doc;
+  doc["timestamp"] = now;
+  doc["message"] = "Retries for reading temp " + String(retries);
+  String json = "";
+  serializeJson(doc, json);
+  Serial.println("------------------------------");
+  Serial.println("Sending to server: " + json);
+  int httpCode = http.POST(json);
+  String payload = http.getString();
+  Serial.println("Server replied with http code " + String(httpCode) + " and payload:");
+  Serial.println(payload);
+  http.end();
+}
+
 // TMP36 specific
 // Converting from 10mv per degree with 500mV offset
 // to degrees ((voltage - 500mV) times 100)
@@ -154,4 +180,16 @@ void dht_restart() {
   digitalWrite(DHTVcc, HIGH);
   digitalWrite(DHTPIN, HIGH);
   delay(1000);
+}
+
+String remove_char(String str, char charToRemove) {
+  char c;
+  for(int i=0; i < str.length(); i++) {
+    c = str.charAt(i);
+    if (c == charToRemove) {
+      str.remove(i, 1);
+      i--; // So we stay at the same index to handle multiple concurrent occurences of the same char.
+    }
+  }
+  return str;
 }
