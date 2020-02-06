@@ -51,7 +51,9 @@ void loop() {
   Serial.println(retries);
   send_temp(temp);
   send_humidity(humidity);
-  send_retries(retries, WiFi.macAddress() + "-0");
+  if (retries > 0) {
+    send_retries(retries, WiFi.macAddress() + "-0");
+  }
   Serial.println("going to sleep");
   ESP.deepSleep(10*60*1e6, WAKE_RF_DEFAULT);
 }
