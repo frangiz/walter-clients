@@ -17,6 +17,7 @@ int DHTTYPE = DHT22;
 DHT dht(DHTPIN, DHTTYPE);
 
 int retries = 0;
+bool ntp_sync_ok = false;
 
 void setup() {
   Serial.begin(115200);
@@ -35,6 +36,10 @@ void setup() {
 }
 
 void loop() {
+  if (!ntp_sync_ok) {
+    Serial.println("going to sleep");
+    ESP.deepSleep(10*60*1e6, WAKE_RF_DEFAULT);
+  }
   Serial.println("Reading temp...");
   //float temp = calc_temp(analogRead(A0));
   float temp = dht.readTemperature();
@@ -84,12 +89,13 @@ void sync_ntp() {
   Serial.println("------------------------------");
   Serial.println("Syncing NTP");
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  unsigned timeout = 60 * 1000;
+  unsigned timeout = 2 * 60 * 1000;
   unsigned start = millis();
   while (millis() - start < timeout) {
     Serial.print(".");
     time_t now = time(nullptr);
     if (now > (2016 - 1970) * 365 * 24 * 3600) {
+      ntp_sync_ok = true;
       break;
     }
     delay(100);
@@ -111,7 +117,7 @@ void send_temp(float temp) {
   doc["timestamp"] = now;
   doc["sensor"] = WiFi.macAddress() + "-0";
   doc["value"] = temp;
-  doc["next_update"] = 12 * 60;
+  doc["next_update"] = 22 * 60;
   String json = "";
   serializeJson(doc, json);
   Serial.println("------------------------------");
@@ -132,7 +138,7 @@ void send_humidity(float humidity) {
   doc["timestamp"] = now;
   doc["sensor"] = WiFi.macAddress() + "-1";
   doc["value"] = humidity;
-  doc["next_update"] = 12 * 60;
+  doc["next_update"] = 22 * 60;
   String json = "";
   serializeJson(doc, json);
   Serial.println("------------------------------");
