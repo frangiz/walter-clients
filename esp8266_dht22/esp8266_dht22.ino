@@ -1,5 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266httpUpdate.h>
 #include <time.h>
 
 // https://arduinojson.org/
@@ -9,6 +10,9 @@
 
 //https://github.com/adafruit/DHT-sensor-library
 #include "DHT.h"
+
+#define VERSION "1"
+#define DEV_TYPE "wemos_d1_mini"
 
 uint8_t DHTPIN = D4;
 uint8_t DHTVcc = D6;
@@ -31,6 +35,7 @@ void setup() {
   Serial.println();
   connect_to_wifi();
   sync_ntp();
+  check_for_firmware_updates();
 
   retries = 0;
 }
@@ -200,4 +205,28 @@ String remove_char(String str, char charToRemove) {
     }
   }
   return str;
+}
+
+void check_for_firmware_updates() {
+  String url = String(SERVER);
+  url.concat("/api/firmware/updates");
+  url.concat("?ver=" + String(VERSION));
+  url.concat("&dev_type=" + String(DEV_TYPE));
+  url.concat("&dev_id=" + remove_char(WiFi.macAddress(), ':'));
+
+  Serial.println("Checking for updates @ " +url);
+  t_httpUpdate_return ret = ESPhttpUpdate.update(url);
+
+  switch (ret) {
+    case HTTP_UPDATE_OK:
+      Serial.println("HTTP_UPDATE_OK");
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("HTTP_UPDATE_NO_UPDATES");
+      break;
+    case HTTP_UPDATE_FAILED:
+    default:
+      Serial.println("HTTP_UPDATE_FAILED");
+      break;
+  }
 }
