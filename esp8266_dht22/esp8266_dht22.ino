@@ -11,7 +11,7 @@
 //https://github.com/adafruit/DHT-sensor-library
 #include "DHT.h"
 
-#define VERSION "1"
+#define VERSION "2"
 #define DEV_TYPE "wemos_d1_mini"
 
 uint8_t DHTPIN = D4;
@@ -25,7 +25,6 @@ bool ntp_sync_ok = false;
 
 void setup() {
   Serial.begin(115200);
-  //pinMode(A0, INPUT);
   pinMode(DHTVcc, OUTPUT);
   digitalWrite(DHTVcc, HIGH);
   delay(1000);
@@ -41,12 +40,11 @@ void setup() {
 }
 
 void loop() {
-  if (!ntp_sync_ok) {
+  if (!ntp_sync_ok || retries > 100) {
     Serial.println("going to sleep");
     ESP.deepSleep(10*60*1e6, WAKE_RF_DEFAULT);
   }
   Serial.println("Reading temp...");
-  //float temp = calc_temp(analogRead(A0));
   float temp = dht.readTemperature();
   delay(10);
   float humidity = dht.readHumidity();
@@ -173,17 +171,6 @@ void send_retries(int retries, String sensorId) {
   Serial.println("Server replied with http code " + String(httpCode) + " and payload:");
   Serial.println(payload);
   http.end();
-}
-
-// TMP36 specific
-// Converting from 10mv per degree with 500mV offset
-// to degrees ((voltage - 500mV) times 100)
-float calc_temp(int reading) {
-    Serial.print("Reading: ");
-    Serial.println(reading);
-    float voltage = reading * 3.1;
-    voltage /= 1024.0;
-    return (voltage - 0.5) * 100;
 }
 
 void dht_restart() {
