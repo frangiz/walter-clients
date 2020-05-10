@@ -11,8 +11,10 @@
 //https://github.com/adafruit/DHT-sensor-library
 #include "DHT.h"
 
-#define VERSION "2"
+#define VERSION "3"
 #define DEV_TYPE "wemos_d1_mini"
+#define DEEP_SLEEP_TIME 10*60*1e6 // 10 mins
+#define UPDATE_INTERVAL_SECS 42*60
 
 uint8_t DHTPIN = D4;
 uint8_t DHTVcc = D6;
@@ -33,8 +35,8 @@ void setup() {
   Serial.println();
   Serial.println();
   connect_to_wifi();
-  sync_ntp();
   check_for_firmware_updates();
+  sync_ntp();
 
   retries = 0;
 }
@@ -42,7 +44,7 @@ void setup() {
 void loop() {
   if (!ntp_sync_ok || retries > 100) {
     Serial.println("going to sleep");
-    ESP.deepSleep(10*60*1e6, WAKE_RF_DEFAULT);
+    ESP.deepSleep(DEEP_SLEEP_TIME, WAKE_RF_DEFAULT);
   }
   Serial.println("Reading temp...");
   float temp = dht.readTemperature();
@@ -63,7 +65,7 @@ void loop() {
     send_retries(retries, WiFi.macAddress() + "-0");
   }
   Serial.println("going to sleep");
-  ESP.deepSleep(10*60*1e6, WAKE_RF_DEFAULT);
+  ESP.deepSleep(DEEP_SLEEP_TIME, WAKE_RF_DEFAULT);
 }
 
 void connect_to_wifi() {
@@ -112,58 +114,51 @@ void sync_ntp() {
 }
 
 void send_temp(float temp) {
-  time_t now = time(nullptr);
-  HTTPClient http;
-  http.begin(SERVER + "/api/temperature");
-  http.addHeader("Content-Type", "application/json");
+  String url = SERVER + "/api/temperature";
+
   StaticJsonDocument<200> doc;
-  doc["timestamp"] = now;
+  doc["timestamp"] = time(nullptr);
   doc["sensor"] = WiFi.macAddress() + "-0";
   doc["value"] = temp;
-  doc["next_update"] = 22 * 60;
+  doc["next_update"] = UPDATE_INTERVAL_SECS;
   String json = "";
   serializeJson(doc, json);
-  Serial.println("------------------------------");
-  Serial.println("Sending to server: " + json);
-  int httpCode = http.POST(json);
-  String payload = http.getString();
-  Serial.println("Server replied with http code " + String(httpCode) + " and payload:");
-  Serial.println(payload);
-  http.end();
+  
+  send(url, json);
 }
 
 void send_humidity(float humidity) {
-  time_t now = time(nullptr);
-  HTTPClient http;
-  http.begin(SERVER + "/api/humidity");
-  http.addHeader("Content-Type", "application/json");
+  String url = SERVER + "/api/humidity";
+
   StaticJsonDocument<200> doc;
-  doc["timestamp"] = now;
+  doc["timestamp"] = time(nullptr);
   doc["sensor"] = WiFi.macAddress() + "-1";
   doc["value"] = humidity;
-  doc["next_update"] = 22 * 60;
+  doc["next_update"] = UPDATE_INTERVAL_SECS;
   String json = "";
   serializeJson(doc, json);
-  Serial.println("------------------------------");
-  Serial.println("Sending to server: " + json);
-  int httpCode = http.POST(json);
-  String payload = http.getString();
-  Serial.println("Server replied with http code " + String(httpCode) + " and payload:");
-  Serial.println(payload);
-  http.end();
+
+  send(url, json);
 }
 
 void send_retries(int retries, String sensorId) {
   sensorId = remove_char(sensorId, ':');
-  time_t now = time(nullptr);
-  HTTPClient http;
-  http.begin(SERVER + "/api/sensors/" + sensorId + "/logs");
-  http.addHeader("Content-Type", "application/json");
+  String url = SERVER + "/api/sensors/" + sensorId + "/logs";
+  
   StaticJsonDocument<200> doc;
-  doc["timestamp"] = now;
+  doc["timestamp"] = time(nullptr);
   doc["message"] = "Retries for reading temp " + String(retries);
   String json = "";
   serializeJson(doc, json);
+
+  send(url, json);
+}
+
+void send(const String url, const String json) {
+  time_t now = time(nullptr);
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
   Serial.println("------------------------------");
   Serial.println("Sending to server: " + json);
   int httpCode = http.POST(json);
