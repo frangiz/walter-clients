@@ -1,3 +1,5 @@
 .vscode/
 config.h
 build/
+.venv/
+*.bin

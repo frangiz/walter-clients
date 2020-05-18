@@ -2,6 +2,7 @@
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 #include <time.h>
+#include <PubSubClient.h>
 
 // https://arduinojson.org/
 #include "ArduinoJson.h"
@@ -11,19 +12,41 @@
 //https://github.com/adafruit/DHT-sensor-library
 #include "DHT.h"
 
-#define VERSION "3"
+#define VERSION "4"
 #define DEV_TYPE "wemos_d1_mini"
 #define DEEP_SLEEP_TIME 10*60*1e6 // 10 mins
-#define UPDATE_INTERVAL_SECS 42*60
+
+#define MQTT_VERSION MQTT_VERSION_3_1_1
 
 uint8_t DHTPIN = D4;
 uint8_t DHTVcc = D6;
 int DHTTYPE = DHT22;
 
 DHT dht(DHTPIN, DHTTYPE);
+WiFiClient wifiClient;
+PubSubClient client(wifiClient);
 
 int retries = 0;
-bool ntp_sync_ok = false;
+
+void publishData(float temp, float humidity) {
+  StaticJsonDocument<200> doc;
+  doc["temperature"] = (String)temp;
+  doc["humidity"] = (String)humidity;
+  doc["firmware_version"] = VERSION;
+  doc["retries"] = (String)retries;
+
+  String json = "";
+  serializeJson(doc, json);
+  String topic = "sensor/" +deviceId();
+
+  Serial.println("Sending to MQTT:");
+  Serial.println("Topic: " +topic);
+  Serial.println(json);
+
+  boolean result = client.publish(topic.c_str(), json.c_str(), true);
+  Serial.println(result);
+  yield();
+}
 
 void setup() {
   Serial.begin(115200);
@@ -34,41 +57,48 @@ void setup() {
   
   Serial.println();
   Serial.println();
-  connect_to_wifi();
-  check_for_firmware_updates();
-  sync_ntp();
+  connectToWiFi();
+  checkForFirmwareUpdates();
 
   retries = 0;
 }
 
 void loop() {
-  if (!ntp_sync_ok || retries > 100) {
-    Serial.println("going to sleep");
-    ESP.deepSleep(DEEP_SLEEP_TIME, WAKE_RF_DEFAULT);
+  if (!client.connected()) {
+    reconnect();
   }
+  client.loop();
+
   Serial.println("Reading temp...");
   float temp = dht.readTemperature();
   delay(10);
   float humidity = dht.readHumidity();
-  if (isnan(temp)) {
+  if (isnan(temp) || isnan(humidity)) {
     Serial.println("Is NaN, restarting DHT.");
-    dht_restart();
+    dhtRestart();
     retries++;
     return;
   }
-  Serial.println(temp);
-  Serial.println(humidity);
-  Serial.println(retries);
-  send_temp(temp);
-  send_humidity(humidity);
-  if (retries > 0) {
-    send_retries(retries, WiFi.macAddress() + "-0");
-  }
+
+  publishData(temp, humidity);
+
+  Serial.println("Closing the MQTT connection.");
+  client.disconnect();
+
+  Serial.println("Closing the WiFi connection.");
+  WiFi.disconnect();
+
   Serial.println("going to sleep");
   ESP.deepSleep(DEEP_SLEEP_TIME, WAKE_RF_DEFAULT);
 }
 
-void connect_to_wifi() {
+String deviceId() {
+  String id = removeChar(WiFi.macAddress(), ':');
+  id.toLowerCase();
+  return id;
+}
+
+void connectToWiFi() {
   // Connect to WiFi network
   Serial.println("------------------------------");
   Serial.print("Connecting to ");
@@ -86,89 +116,15 @@ void connect_to_wifi() {
   // Print the IP address
   Serial.print("Use this URL to connect: ");
   Serial.print(WiFi.localIP());
-  Serial.println("/");
+  Serial.println();
+
+  // Init the MQTT connection
+  client.setServer(MQTT_SERVER_IP, MQTT_SERVER_PORT);
+  client.setCallback(callback);
   Serial.println();
 }
 
-void sync_ntp() {
-  Serial.println("------------------------------");
-  Serial.println("Syncing NTP");
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  unsigned timeout = 2 * 60 * 1000;
-  unsigned start = millis();
-  while (millis() - start < timeout) {
-    Serial.print(".");
-    time_t now = time(nullptr);
-    if (now > (2016 - 1970) * 365 * 24 * 3600) {
-      ntp_sync_ok = true;
-      break;
-    }
-    delay(100);
-  }
-  Serial.println();
-  {
-    time_t now = time(nullptr);
-    Serial.print("Sync finished with current time: ");
-    Serial.println(ctime(&now));
-  }
-}
-
-void send_temp(float temp) {
-  String url = SERVER + "/api/temperature";
-
-  StaticJsonDocument<200> doc;
-  doc["timestamp"] = time(nullptr);
-  doc["sensor"] = WiFi.macAddress() + "-0";
-  doc["value"] = temp;
-  doc["next_update"] = UPDATE_INTERVAL_SECS;
-  String json = "";
-  serializeJson(doc, json);
-  
-  send(url, json);
-}
-
-void send_humidity(float humidity) {
-  String url = SERVER + "/api/humidity";
-
-  StaticJsonDocument<200> doc;
-  doc["timestamp"] = time(nullptr);
-  doc["sensor"] = WiFi.macAddress() + "-1";
-  doc["value"] = humidity;
-  doc["next_update"] = UPDATE_INTERVAL_SECS;
-  String json = "";
-  serializeJson(doc, json);
-
-  send(url, json);
-}
-
-void send_retries(int retries, String sensorId) {
-  sensorId = remove_char(sensorId, ':');
-  String url = SERVER + "/api/sensors/" + sensorId + "/logs";
-  
-  StaticJsonDocument<200> doc;
-  doc["timestamp"] = time(nullptr);
-  doc["message"] = "Retries for reading temp " + String(retries);
-  String json = "";
-  serializeJson(doc, json);
-
-  send(url, json);
-}
-
-void send(const String url, const String json) {
-  time_t now = time(nullptr);
-  HTTPClient http;
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  Serial.println("------------------------------");
-  Serial.println("Sending to server: " + json);
-  int httpCode = http.POST(json);
-  String payload = http.getString();
-  Serial.println("Server replied with http code " + String(httpCode) + " and payload:");
-  Serial.println(payload);
-  http.end();
-}
-
-void dht_restart() {
+void dhtRestart() {
   digitalWrite(DHTVcc, LOW);
   digitalWrite(DHTPIN, LOW);
   delay(1000);
@@ -177,7 +133,25 @@ void dht_restart() {
   delay(1000);
 }
 
-String remove_char(String str, char charToRemove) {
+// function called when a MQTT message arrived
+void callback(char* topic, byte* payload, unsigned int length) {
+}
+
+void reconnect() {
+  while(!client.connected()) {
+    Serial.println("Connecting to MQTT broker.");
+    if (client.connect(deviceId().c_str(), MQTT_USER, MQTT_PASSWORD)) {
+      Serial.println("Connected");
+    } else {
+      Serial.print("Error: failed, rc=");
+      Serial.print(client.state());
+      Serial.print("Trying again in 5 seconds.");
+      delay(5000);
+    }
+  }
+}
+
+String removeChar(String str, char charToRemove) {
   char c;
   for(int i=0; i < str.length(); i++) {
     c = str.charAt(i);
@@ -189,12 +163,12 @@ String remove_char(String str, char charToRemove) {
   return str;
 }
 
-void check_for_firmware_updates() {
-  String url = String(SERVER);
+void checkForFirmwareUpdates() {
+  String url = String(WALTER_SERVER);
   url.concat("/api/firmware/updates");
   url.concat("?ver=" + String(VERSION));
   url.concat("&dev_type=" + String(DEV_TYPE));
-  url.concat("&dev_id=" + remove_char(WiFi.macAddress(), ':'));
+  url.concat("&dev_id=" + deviceId());
 
   Serial.println("Checking for updates @ " +url);
   t_httpUpdate_return ret = ESPhttpUpdate.update(url);
