@@ -12,7 +12,7 @@
 //https://github.com/adafruit/DHT-sensor-library
 #include "DHT.h"
 
-#define VERSION "4"
+#define VERSION "5"
 #define DEV_TYPE "wemos_d1_mini"
 #define DEEP_SLEEP_TIME 10*60*1e6 // 10 mins
 
@@ -93,7 +93,7 @@ void loop() {
 }
 
 String deviceId() {
-  String id = removeChar(WiFi.macAddress(), ':');
+  String id = String(ESP.getChipId());
   id.toLowerCase();
   return id;
 }
